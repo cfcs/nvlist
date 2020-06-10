@@ -1,0 +1,5 @@
+(executable
+ (name fuzz)
+ (ocamlopt_flags (:standard -afl-instrument))
+ (libraries crowbar nvlist afl-persistent)
+)

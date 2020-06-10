@@ -1,0 +1,10 @@
+_build/
+*.deb
+yo
+.merlin
+*#
+.#*
+*~
+*.exe
+diverges.files*
+delme*

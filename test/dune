@@ -1,0 +1,11 @@
+(test
+ (name puretests)
+ (modules puretests)
+ (libraries alcotest fmt nvlist result rresult)
+)
+
+(test
+ (name zfstests)
+ (modules zfstests)
+ (libraries alcotest fmt rresult nvlist result nvlist.zfs)
+)

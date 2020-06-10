@@ -1,0 +1,15 @@
+(executable
+(name zfs_resumetok_decode)
+(public_name zfs_resumetok_decode)
+(modules zfs_resumetok_decode)
+(package nvlist)
+(libraries cmdliner fmt.cli logs.cli logs.fmt fmt.tty rresult result nvlist nvlist.zfs)
+)
+
+(executable
+(name nvlist_pp)
+(public_name nvlist_pp)
+(modules nvlist_pp)
+(package nvlist)
+(libraries cmdliner fmt.cli logs.cli logs.fmt fmt.tty rresult result nvlist)
+)

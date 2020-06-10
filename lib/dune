@@ -1,0 +1,17 @@
+(library
+(flags (-w -27))
+(ocamlopt_flags (:standard -afl-instrument))
+(ocamlc_flags (:standard -g))
+(public_name nvlist)
+(modules nvlist)
+(libraries fmt logs rresult result)
+)
+
+(library
+  (flags (-w -27)) ; TODO non-exhaustive patterns
+  (ocamlopt_flags (:standard -afl-instrument))
+  (name nvlist_zfs)
+  (public_name nvlist.zfs)
+  (modules nvlist_zfs)
+  (libraries nvlist logs rresult result fmt ezgzip)
+)

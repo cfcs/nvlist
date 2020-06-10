@@ -1,0 +1,35 @@
+synopsis: "The Sun Microsystems / Solaris serialization framework written in pure OCaml"
+description:
+"""
+The `nvlist` library is commonplace in Sun products (ZFS, ...) where it provides
+an API for ad-hoc (de)serialization of typed datum.
+
+This library is a from-scratch reimplementation in pure OCaml.
+"""
+opam-version: "2.0"
+maintainer: "CFCS"
+bug-reports: "https://github.com/cfcs/nvlist/issues"
+homepage: "https://github.com/cfcs/nvlist/"
+dev-repo: "git+https://github.com/cfcs/nvlist.git"
+authors: [
+  "CFCS"
+]
+license: "ISC"
+doc: "https://github.com/cfcs/nvlist"
+
+depends: [
+  "ocaml"        {         >= "4.07.0" }
+  "dune"         { build & >= "2.3.0"  }
+  "stdlib-shims"
+  "alcotest" {with-test}
+  "crowbar" {with-test}
+  "afl-persistent" {with-test}
+  "ezgzip"
+  "cmdliner"
+  "logs"
+  "fmt"
+  "rresult"
+]
+
+
+build: [ [ "dune" "build" "-p" name "-j" jobs ] ]
