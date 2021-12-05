@@ -9,9 +9,9 @@ let nvvalue =
 
 let pp_nvlist ppf v =
   Fmt.pf ppf "%a" Fmt.(
-      list ~sep:(unit ";")
+      list ~sep:(any ";")
       @@
-      pair ~sep:(unit ":") string Nvlist.pp_value) v
+      pair ~sep:(any ":") string Nvlist.pp_value) v
 
 let nvlist =
   Alcotest.testable pp_nvlist (=)
@@ -390,7 +390,7 @@ let test_decode_empty () =
 
 let test_self x () =
   Alcotest.(check @@ result nvlist string)
-    (Fmt.strf "decode(encode(%a))" pp_nvlist x)
+    (Fmt.str "decode(encode(%a))" pp_nvlist x)
     (Ok x)
     (Nvlist.fnvlist_unpack (match Nvlist.fnvlist_pack x with
          | Ok v ->
@@ -405,10 +405,10 @@ let test_c_empty () =
 
 let test_c_yo_int32 () =
   let open Nvlist in
-  let x = [
-    "ab", StrArray (Array.make 3 "hello" |> Array.to_list)
-    ]; in
-  Alcotest.check Alcotest.string "yo:123l nvl"
+  let x = ["ab", Uint64 0xffff00000000_L ;
+           "ab", Uint64 0x1e00000000000001_L ;
+        ] in
+  Alcotest.check Alcotest.string "abab unique"
     "a"
     (to_c x)
 
@@ -1105,23 +1105,22 @@ uint64:	"ab" = 0x1e00000000000001
 
 *)
     Nvlist.unhex @@
-    "00010000" ^ (* native, little-endian; reserved1=0x00; reserved2=0x200 *)
-    "0000000001000000" ^
+    "00010000" ^ (* native, little-endian; reserved1=0x00; reserved2=0x00 *)
+    "00000000" ^ (* nvl version = 0 *)
+    "01000000" ^ (* nvflag = 0x1 = nv_unique_name -- if this was 0 I'd agree *)
     "20000000" ^ (* first appendix =32=0x20 *)
-    "030000000100000008000000" ^ (* namesz=3; elcnt=1, typ=Uint64(x08) *)
+    "030000000100000008000000" ^ (* namesz=3l; elcnt=1, typ=Uint64(x08) *)
     "6162000000000000" ^ (* "ab\x00" + pad *)
     "00000000ffff0000" ^ (* 0x0000ffff00000000_L *)
     "20000000" ^ (* second appendix =32=0x20 *)
-    "030000000100000008000000" ^ (* namesz=3l; elcnt=1; typ=Uint64 *)
+    "030000000100000008000000" ^ (* namesz=3l; elcnt=1; typ=Uint64(x08) *)
     "6162000000000000" ^ (* "ab\x00" + pad *)
     "010000000000001e" ^ (* 0x1e00000000000001_L *)
     "00000000" (* end marker, third appendix = 0 *)
   in
   Alcotest.(check @@ result nvlist string)
-    "libnvlist says this is good"
-    (Ok ["ab", Uint64 0xffff00000000_L ;
-         "ab", Uint64 0x1e00000000000001_L ;
-        ])
+    "libnvlist from illumos-gate#2ec7644/illumos:9580 thinks this is good:"
+    (Error "unique name present twice")
     (Nvlist.fnvlist_unpack libnvlist_good) ;
 
   Alcotest.(check @@ result hexcheck string)

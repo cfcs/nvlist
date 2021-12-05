@@ -10,6 +10,9 @@ module Fletcher4 : sig
   (* A zero-initialized checksum state *)
   val empty : t
 
+  val to_string_le : t -> string
+  (* little-endian canonical byte representation as used in ZFS *)
+
   (* [varsize old_t src off len] is [old_t] updated
      with the bytes in [src] from [off] through [off+len-1].
      [off] and [len] must be multiples of [4] (32-bit alignment), otherwise an assertion is triggered.
@@ -31,4 +34,8 @@ module Resumetoken : sig
 
   val create : obj:int64 -> offset:int64 ->
     bytes:int64 -> toguid:int64 -> toname:string -> (string, string) result
+end
+
+module DRR : sig
+  val parse_drr : fletcher4:Fletcher4.t -> bytes -> int * Fletcher4.t
 end

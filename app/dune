@@ -7,9 +7,18 @@
 )
 
 (executable
+(name recv_pp)
+(public_name recv_pp)
+(modules recv_pp)
+(package nvlist)
+(libraries cmdliner fmt.cli logs.cli logs.fmt fmt.tty rresult result nvlist nvlist.zfs)
+)
+
+(executable
 (name nvlist_pp)
 (public_name nvlist_pp)
 (modules nvlist_pp)
 (package nvlist)
 (libraries cmdliner fmt.cli logs.cli logs.fmt fmt.tty rresult result nvlist)
 )
+

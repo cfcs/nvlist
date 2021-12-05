@@ -118,7 +118,7 @@ let el_typ_of_int32 = function
   | 26_l -> Ok T_Uint8Array
   | 27_l -> Ok T_Double
   | n when 0_l <= n && n < 27_l -> failwith "oops el_typ"
-  | n -> Error (Fmt.strf "not implemented el_typ=%#lx" n)
+  | n -> Error (Fmt.str "not implemented el_typ=%#lx" n)
 
 type t =
   | Boolean:          t
@@ -287,7 +287,7 @@ let rec pp_value (ppf:Format.formatter) v =
   | Nvlist nvl -> Fmt.pf ppf "Nvlist %a" pp nvl
   | StrArray strs ->
     Fmt.pf ppf "(StrArray [%a])"
-      (Fmt.list ~sep:(Fmt.unit ";") (fun ppf -> Fmt.pf ppf "%S")) strs
+      (Fmt.list ~sep:(Fmt.any ";") (fun ppf -> Fmt.pf ppf "%S")) strs
   | BooleanArray lst ->
     Format.fprintf ppf "@[BooleanArray @[[%a@]]@]"
       (Format.pp_print_list
@@ -350,22 +350,54 @@ module Nvl_state = struct
   }
 
   let add_name t (name:string) (typ:el_typ) =
+    (* inline version of openzfs:nvpair.c:nvt_nvpair_match()
+       which considers nv_unique_name_type to take precedence.
+       are the flags exclusive?
+       ie if nv_unique_name_type=true then match=false
+       even if nv_unique_name is set and there are duplicate names.
+
+       this is interesting because in fnvlist when you add,
+       it updates duplicates by removing ALL dupl names if NV_UNIQUE_NAME is
+       set, and otherwise it'll remove of a given type (makes sense).
+
+       but
+       nvt_nvpair_match(a,b,nvflag=NV_UNIQUE_NAME | NV_UNIQUE_NAME_TYPE)
+       is B_FALSE if a and b have similar names but different types.
+       interestingly it will also crash if nvflag &~3
+
+       nvt_nvpair_match is only called from
+       nvt_remove_nvpair(nvlist_t *nvl, nvpair_t *nvp)
+       so nvt_remove_pair() will NOT honour NV_UNIQUE_NAME
+       if NV_UNIQUE_NAME_TYPE is set, unlike the semantics of
+       nvlist_add_common
+
+       conceivably this could be a problem if a datastructure is deserialized
+       with both flags set, and the program then tries to sanitize it by
+       removing an entry with
+       nvt_add_nvpair() -> nvlist_remove_nvpair() -> nvt_remove_nvpair()
+       nvlist_add_common() -> nvt_add_nvpair()
+       nvs_decode_pairs() -> nvt_add_nvpair()
+
+       it seems to me like nvt_nvpair_match() which was introduced in illumos:9580 in dec 2017
+       should validate both, if both flags are set.
+
+    *)
     match t.nvflag with
-    | { nv_unique_name = true ; _ } ->
-      if NameSet.mem name t.names
-      then begin
-        Fmt.pr "conflicting name %S in %a\n%!"
-          name Fmt.(seq ~sep:(unit";") @@ quote string) (NameSet.to_seq t.names)
-        ;
-        Error "unique name present twice"
-      end else Ok ({t with names = NameSet.add name t.names})
-    | { nv_unique_name_type = true ; nv_unique_name = false } ->
+    | { nv_unique_name_type = true ; nv_unique_name = _ } ->
       (* unique_name_type is weaker than unique_name;
          it allows duplicate entries as long as their type differs: *)
       let tuple = (typ,name) in
       if NameTypeSet.mem tuple t.nametypes
       then Error "nametyp conflict"
       else Ok {t with nametypes = NameTypeSet.add tuple t.nametypes}
+    | { nv_unique_name = true ; nv_unique_name_type = _ } ->
+      if NameSet.mem name t.names
+      then begin
+        Fmt.pr "conflicting name %S in %a\n%!"
+          name Fmt.(seq ~sep:(any";") @@ quote string) (NameSet.to_seq t.names)
+        ;
+        Error "unique name present twice"
+      end else Ok ({t with names = NameSet.add name t.names})
     | { nv_unique_name = false ; nv_unique_name_type = false } ->
       Ok t
 
@@ -404,7 +436,7 @@ let validate_nv ~nvflag nvl =
 let read_nvlist_header b off =
   Fmt.pr "read_nvlist_header off:%d b:%s\n%!" off (Bytes.to_string b |> hex) ;
   (if off >= Bytes.length b - 24
-   then Error (Fmt.strf "%s input too short" __FUNCTION__)
+   then Error (Fmt.str "%s input too short" __FUNCTION__)
    else Ok ()) >>=fun() ->
   let nvl_version = Bytes.get_int32_le b off in
   let nvflag = Bytes.get_int32_le b (off+4) in
@@ -414,7 +446,7 @@ let read_nvlist_header b off =
   Fmt.pr "off:%d nvlist_header_t: %ld %ld priv:%#Lx %ld %ld\n%!"
     off nvl_version nvflag priv flag pad ;
   let _assert_ b1 b2 =
-    if b1 = b2 then Ok () else Error (Fmt.strf "%s violation" __FUNCTION__) in
+    if b1 = b2 then Ok () else Error (Fmt.str "%s violation" __FUNCTION__) in
   begin if nvl_version <> 0l then
      Error "embedded nvlist header is not 0_l"
    else Ok () end  >>= fun () ->
@@ -567,7 +599,7 @@ let fnvlist_pack (nv:nvl) =
       (* STRING_ARRAY is prefixed by an array of pointers: *)
       List.iter (fun _ -> Buffer.add_string b (String.make 8 '\x00')) strs ;
       (* Then follows all the strings, separated by nullbytes
-         (but not unaligned, ie no padding between entries): *)
+         (but not aligned, ie no 32bit padding between entries): *)
       List.fold_left (fun count x ->
           Buffer.add_string b x ;
           Buffer.add_char b '\x00' ;
@@ -907,7 +939,7 @@ let fnvlist_unpack s =
         | _ ->
           if (Int32.to_int appendix = off-begin_off) then
             Ok () else
-            Error (Fmt.strf "bad appendix length")
+            Error (Fmt.str "bad appendix length")
       end >>= fun () ->
       (if old_off <= off
        then Ok () (* assertion to avoid infinite loops *)
@@ -924,7 +956,7 @@ let fnvlist_unpack s =
         (* avoid going backwards: *)
         if Int32.to_int appendix + begin_off > off
         then
-          Error (Fmt.strf "didnt consume appendix: %d + %d <> %d"
+          Error (Fmt.str "didnt consume appendix: %d + %d <> %d"
                    (Int32.to_int appendix) old_off off)
         else Ok ()
      end >>= fun () ->
@@ -934,10 +966,11 @@ let fnvlist_unpack s =
   in
   loop nvstate [] 12 >>= fun (off, ret) ->
   (* Ensure we didn't bail early:
-     (fnvlist_unpack) just returns the consumed length*)
+     (fnvlist_unpack) just returns the consumed length, it does not
+     throw an error if the input size is longer than needed *)
   (*
   if (off = String.length s) then Ok ret
-  else Error (Fmt.strf "nvlist parser early exit %d/%d: %a"
+  else Error (Fmt.str "nvlist parser early exit %d/%d: %a"
                 off (String.length s) pp ret)
      *)
   Ok ret
@@ -1032,19 +1065,19 @@ main(int argc, char **argv)
       loop ~parent next
     | (k, Int32Array v) :: next ->
       mkarray ~k ~c_typ:"uint32_t" ~c_fun:"int32_array"
-        v (Fmt.strf "%ld") ;
+        v (Fmt.str "%ld") ;
       loop ~parent next
     | (k, Uint32Array v) :: next ->
       mkarray ~k ~c_typ:"uint32_t" ~c_fun:"uint32_array"
-        v (Fmt.strf "%lu") ;
+        v (Fmt.str "%lu") ;
       loop ~parent next
     | (k, Int64Array v) :: next ->
       mkarray ~k ~c_typ:"int64_t" ~c_fun:"int64_array"
-        v (Fmt.strf "%Ld") ;
+        v (Fmt.str "%Ld") ;
       loop ~parent next
     | (k, Uint64Array v) :: next ->
       mkarray ~k ~c_typ:"uint64_t" ~c_fun:"uint64_array"
-        v (Fmt.strf "%Lu") ;
+        v (Fmt.str "%Lu") ;
       loop ~parent next
     | (k,ByteArray v) :: next ->
       let v = (String.to_seq v |> List.of_seq) in
@@ -1057,7 +1090,7 @@ main(int argc, char **argv)
             let ib = Buffer.create 10 in
             Buffer.add_char ib '"' ;
             ( String.to_seq s |> Seq.iter (fun ch ->
-                  Buffer.add_string ib (Fmt.strf "\\x%x" (Char.code ch));
+                  Buffer.add_string ib (Fmt.str "\\x%x" (Char.code ch));
                 )
             ) ;
             Buffer.add_char ib '"';
@@ -1087,7 +1120,7 @@ main(int argc, char **argv)
       cfun "int16" k (fun () -> Buffer.add_string b (Int.to_string v))
     ; loop ~parent next
     | (k, Uint16 v) :: next ->
-      cfun "uint16" k (fun () -> Buffer.add_string b (Fmt.strf "%u" v))
+      cfun "uint16" k (fun () -> Buffer.add_string b (Fmt.str "%u" v))
     ; loop ~parent next
     | (k,Int32 v) :: next ->
       cfun "int32" k (fun () -> Buffer.add_string b (Int32.to_string v))
@@ -1096,7 +1129,7 @@ main(int argc, char **argv)
       cfun "hrtime" k (fun () -> Buffer.add_string b (Int64.to_string n))
     ; loop ~parent next
     | (k,Uint32 v) :: next ->
-      cfun "uint32" k (fun () -> Buffer.add_string b (Fmt.strf "%lu" v))
+      cfun "uint32" k (fun () -> Buffer.add_string b (Fmt.str "%lu" v))
     ; loop ~parent next
     | (k,Int64 v) :: next ->
       cfun "int64" k (fun () -> Buffer.add_string b (Int64.to_string v))
@@ -1119,7 +1152,7 @@ main(int argc, char **argv)
 |} ; loop ~parent next
     | (key, Byte byte)::next ->
       cfun "byte" key (fun() ->
-          Buffer.add_string b (Fmt.strf "%C" byte);
+          Buffer.add_string b (Fmt.str "%C" byte);
         );
       loop ~parent next
     | (key, NvlistArray vec)::next ->
