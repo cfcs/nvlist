@@ -1,7 +1,7 @@
+let pp_hex ppf v =
+  Fmt.pf ppf "|%s|" (Nvlist.hex v)
 let hexcheck =
-  let pp ppf v =
-    Fmt.pf ppf "|%s|" (Nvlist.hex v) in
-  Alcotest.testable pp String.equal
+  Alcotest.testable pp_hex String.equal
 
 let nvvalue =
   let pp ppf v = Fmt.pf ppf "%a" Nvlist.pp_value v in
@@ -33,9 +33,10 @@ let test_pad_str () =
       (Nvlist. hex src ^ " -> " ^ Nvlist.hex expect)
       expect
       (let b = Buffer.create 1 in
-       Nvlist.pad_str b src ;
+       assert (Ok () = Nvlist.pad_str b src) ;
        Buffer.contents b)
   in
+  (* TODO check that pad_str complains about 0-bytes in the string input *)
   test "" ("" ^ String.make 8 '\000') ;
   test "a" ("a" ^ String.make 7 '\000') ;
   test "ab" ("ab" ^ String.make 6 '\000') ;
@@ -1579,6 +1580,26 @@ let regression_09_xxx () =
     (Ok ["ab", Nvlist.Nvlist []])
     (Nvlist.fnvlist_unpack good)
 
+let regression_10_strarray () =
+  let with_nulls =
+    [("yo",
+      Nvlist.StrArray
+        ["123456789abcdefhello123456789123456789123456789123456789123456789";
+         "woooohooooo\000123"])]
+  in
+  Alcotest.(check @@ result reject pass)
+    "strarray should not contain nullbytes"
+    (Error "should fail")
+    (Nvlist.fnvlist_pack with_nulls)
+
+let regression_11_uint16 () =
+  let inp = ["hi", Nvlist.Uint16 54016] in
+  Alcotest.(check @@ result nvlist reject)
+    "uint16 should not sign extend during unpack"
+    (Ok inp)
+    (let open Rresult in
+     Nvlist.fnvlist_pack inp >>= Nvlist.fnvlist_unpack)
+
 let test_encode_boolean,
     test_decode_boolean =
   (* nvlist size: 40 *)
@@ -1612,6 +1633,73 @@ let test_encode_strarray,
   (fun() ->
      Alcotest.(check @@ result nvlist string)
        "c_test_decode"    (Ok exp)    (Nvlist.fnvlist_unpack @@ Nvlist.unhex v))
+
+let nvl_gen : Nvlist.nvl Crowbar.gen =
+  (* TODO this function is cloned in both puretests.ml and nvlist_gen.ml, sadly. *)
+  let open Nvlist in
+  let open Crowbar in
+  let (>>) a f = map [a] f in
+  fix (fun nvl_gen ->
+      let nv_gen =
+        choose [
+          const Nvlist.Boolean ;
+          char >> (fun x -> Byte x) ;
+          int16 >> (fun x -> Int16 x) ;
+          uint16 >> (fun x -> Uint16 x) ;
+          int32 >> (fun x -> Int32 x) ;
+          int32 >> (fun x -> Uint32 x) ;
+          int64 >> (fun x -> Int64 x) ;
+          int64 >> (fun x -> Uint64 x) ;
+          bytes >> (fun x -> Str x) ;
+          bytes >> (fun x -> ByteArray x) ;
+          (list int16) >> (fun x -> Int16Array x) ;
+          (list uint16) >> (fun x -> Uint16Array x) ;
+          (list int32) >> (fun x -> Int32Array x) ;
+          (list int32) >> (fun x -> Uint32Array x) ;
+          (list int64) >> (fun x -> Int64Array x) ;
+          (list int64) >> (fun x -> Uint64Array x) ;
+          int64 >> (fun x -> HrTime x) ;
+          (list bytes) >> (fun x -> StrArray x) ;
+          nvl_gen >> (fun x -> Nvlist x) ;
+          list nvl_gen >> (fun x -> NvlistArray x) ;
+          int8 >> (fun x -> Int8 x) ;
+          uint8 >> (fun x -> Uint8 x) ;
+          list bool >> (fun x -> BooleanArray x);
+          list int8 >> (fun x -> Int8Array x) ;
+          list uint8 >> (fun x -> Uint8Array x) ;
+          const Double ;
+        ]
+      in
+      let kvpair =
+        Crowbar.map [Crowbar.bytes ; nv_gen]
+          (fun key value -> key,value) in
+      Crowbar.with_printer (Nvlist.pp_nvl) (list kvpair)
+    )
+
+let crowbar_fnvlist_pack () =
+  Crowbar.add_test ~name:"nvgen" [nvl_gen]
+    (fun nvl ->
+       match Nvlist.fnvlist_pack nvl with
+       | Ok packed ->
+         begin match Nvlist.fnvlist_unpack packed with
+           | Ok unpacked -> Crowbar.check_eq ~pp:Nvlist.pp_nvl unpacked nvl
+           | Error unpack_failure ->
+             Crowbar.fail ("can't unpack our own packed" ^ unpack_failure)
+         end
+       | Error _ -> ()
+    )
+
+let crowbar_fnvlist_unpack () =
+  Crowbar.add_test ~name:"byteinput" [Crowbar.bytes]
+    (fun str ->
+       match Nvlist.fnvlist_unpack str with
+       | Error _ -> ()
+       | Ok unpacked ->
+         begin match Nvlist.fnvlist_pack unpacked with
+           | Ok packed -> Crowbar.check_eq ~pp:pp_hex packed str
+           | Error pack_failure -> Crowbar.fail pack_failure
+         end
+    )
 
 let tests = [
   "hex", [
@@ -1933,7 +2021,13 @@ let tests = [
     "regression_07_xxx", `Quick, regression_07_xxx ;
     "regression_08_boolean_value_exact", `Quick, regression_08_booleanvalue_exact ;
     "regression_09_xxx", `Quick, regression_09_xxx ;
+    "regression_10_strarray", `Quick, regression_10_strarray ;
+    "regression_11_uint16", `Quick, regression_11_uint16 ;
   ];
+  "fuzz", [
+    "fnvlist_pack", `Slow, crowbar_fnvlist_pack ;
+    "fnvlist_unpack", `Slow, crowbar_fnvlist_unpack ;
+  ]
 ]
 
 let () =

@@ -51,6 +51,9 @@ main(int argc, char **argv)
   printf("repacked %zd\n", nv_sz);
   fnvlist_free(check);
 
+  nvlist_t *reunpacked = fnvlist_unpack(outbuf, nv_sz);
+  fnvlist_free(reunpacked);
+
   free(outbuf);
   fflush(stdout);
   return 0;

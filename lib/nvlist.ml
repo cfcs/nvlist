@@ -317,15 +317,18 @@ let add_string key value old =
   | Some _ ->(key,value)::List.remove_assoc key old
 
 let pad_str b s =
-  assert (not @@ String.contains s '\000');
-  Buffer.add_string b s ;
-  Buffer.add_char b '\000' ;
-  (* needs to be 32-bit aligned: *)
-  if (String.length s + 1) mod 8 <> 0 then
-    for i = 0 to 7 - ((
-        String.length s+1) mod 8) do
-      Buffer.add_char b '\000'
-    done
+  if String.contains s '\000'
+  then Error "won't pack Str/string that contains nullbytes"
+  else Ok begin
+    Buffer.add_string b s ;
+    Buffer.add_char b '\000' ;
+    (* needs to be 32-bit aligned: *)
+    if (String.length s + 1) mod 8 <> 0 then
+      for i = 0 to 7 - ((
+          String.length s+1) mod 8) do
+        Buffer.add_char b '\000'
+      done
+  end
 
 module Nvl_state = struct
   module NameSet = Set.Make(String)
@@ -554,7 +557,7 @@ let fnvlist_pack (nv:nvl) =
       (* hrtime_t is a Solaris time span, it contains 64 bits of nanoseconds *)
       Ok (Buffer.add_int64_le b n)
     | Str s ->
-      Ok (pad_str b s)
+      pad_str b s
     | NvlistArray arr ->
       (* NVLIST_ARRAY is prefixed by an array of pointers: *)
       let pad = 8 * List.length arr in (* sizeof(uint64_t) * count *)
@@ -596,16 +599,19 @@ let fnvlist_pack (nv:nvl) =
       write_nvlist_header b nvstate ;
       pack_native b nvstate nvl
     | StrArray strs ->
-      (* STRING_ARRAY is prefixed by an array of pointers: *)
-      List.iter (fun _ -> Buffer.add_string b (String.make 8 '\x00')) strs ;
-      (* Then follows all the strings, separated by nullbytes
-         (but not aligned, ie no 32bit padding between entries): *)
-      List.fold_left (fun count x ->
-          Buffer.add_string b x ;
-          Buffer.add_char b '\x00' ;
-          count + String.length x + 1) 0 strs
-      |> align8_pad b ;
-      Ok ()
+      if List.exists (fun s -> String.contains s '\x00') strs
+      then Error "StrArray contains nullbytes"
+      else Ok begin
+          (* STRING_ARRAY is prefixed by an array of pointers: *)
+          List.iter (fun _ -> Buffer.add_string b (String.make 8 '\x00')) strs ;
+          (* Then follows all the strings, separated by nullbytes
+             (but not aligned, ie no 32bit padding between entries): *)
+          List.fold_left (fun count x ->
+              Buffer.add_string b x ;
+              Buffer.add_char b '\x00' ;
+              count + String.length x + 1) 0 strs
+          |> align8_pad b
+        end
     | Double ->
       (* Buffer.add_int64_le b (Int64.bits_of_float f) *)
       Ok (Buffer.add_string b (String.make 8 '\x00'))
@@ -629,7 +635,7 @@ let fnvlist_pack (nv:nvl) =
         Nvl_state.add_name nvstate key (
           typeof nvalue |> el_typ_of_int32 |> Rresult.R.get_ok
         ) >>= fun nvstate ->
-        pad_str child_b key ;
+        pad_str child_b key >>= fun () ->
 
         pack_untagged child_b nvstate nvalue >>= fun () ->
         let nv_length = get_nv_size ~name:key nvalue in
@@ -779,7 +785,11 @@ let fnvlist_unpack s =
           (off+8, Int16 (Bytes.get_int16_le b off))
         | T_Uint16 ->
           ensure_atleast ~off 8 >>| fun () ->
-          (off+8, Uint16 (Bytes.get_int16_le b off))
+          (* we need to truncate this because (unlike u32/u64) this is backed
+           * by a much larger integer, which means %u will cast it to a very
+           * large number:
+           *)
+          (off+8, Uint16 (0xffff land (Bytes.get_int16_le b off)))
         | T_Int32 ->
            ensure_atleast ~off 8 >>| fun () ->
            (off+8, Int32 (Bytes.get_int32_le b off))

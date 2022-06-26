@@ -413,7 +413,7 @@ module DRR = struct
       let cksum_ok = String.equal cksum cksum_ondisk in
       if cksum_ok then begin
         Logs.app (fun m -> m"cksum %a drr_size %d (/%d)"
-                     Fmt.(styled `Green string) "good"
+                     Fmt.(styled `Green string) (Nvlist.hex cksum)
                      drr_size @@ Bytes.length s)
         end else begin
         Logs.app (fun m -> m"cksum comp: %a drr_size %d (/%d)"

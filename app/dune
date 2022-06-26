@@ -22,3 +22,11 @@
 (libraries cmdliner fmt.cli logs.cli logs.fmt fmt.tty rresult result nvlist)
 )
 
+(executable
+(name nvlist_gen)
+(public_name nvlist_gen)
+(modules nvlist_gen)
+(package nvlist)
+(libraries cmdliner fmt.cli logs.cli logs.fmt fmt.tty rresult result nvlist crowbar)
+)
+

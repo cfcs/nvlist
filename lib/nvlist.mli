@@ -46,7 +46,7 @@ val lookup_string : string -> nvl -> string
 
 (**/*)
 
-val pad_str : Buffer.t -> string -> unit
+val pad_str : Buffer.t -> string -> (unit, string) result
 
 val unhex : string -> string
 

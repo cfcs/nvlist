@@ -1,7 +1,7 @@
 (test
  (name puretests)
  (modules puretests)
- (libraries alcotest fmt nvlist result rresult)
+ (libraries alcotest fmt nvlist result rresult crowbar)
 )
 
 (test
