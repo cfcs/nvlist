@@ -1,6 +1,13 @@
 (*
 To fuzz with afl:
 afl-fuzz -i fuzz_in -o fuzz_out -t 10000 -- ./_build/default/app/nvlist_gen.exe @@
+
+Listing packed output:
+(NVGEN_STDERR=1 ./_build/default/app/nvlist_gen.exe -v ../nvlist.fuzz/genout2/default/crashes/id\:000005* 1>/dev/null ) 2> >(hexdump -C)
+
+Collecting generated nvls:
+for X in ../nvlist.fuzz/genout5/default/queue/id*; do (NVGEN_STDERR=1 ./_build/default/app/nvlist_gen.exe "$X" 2>"cases.out/$(basename "${X}")" ) ; done
+
 *)
 open Rresult
 
@@ -50,9 +57,11 @@ let () =
     (fun nvl ->
        match Nvlist.fnvlist_pack nvl with
        | Ok packed ->
-       begin match Nvlist.fnvlist_unpack packed with
-         | Ok unpacked -> Crowbar.check_eq ~pp:Nvlist.pp_nvl unpacked nvl
-         | Error reunpack_failure -> Crowbar.fail reunpack_failure
-       end
+         if Sys.getenv_opt "NVGEN_STDERR" = Some "1" then
+           Printf.eprintf "%s" packed ;
+         begin match Nvlist.fnvlist_unpack packed with
+           | Ok unpacked -> Crowbar.check_eq ~pp:Nvlist.pp_nvl unpacked nvl
+           | Error reunpack_failure -> Crowbar.fail reunpack_failure
+         end
        | Error _ -> () (* don't care for invalid inputs in this test *)
     )

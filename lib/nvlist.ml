@@ -396,9 +396,10 @@ module Nvl_state = struct
     | { nv_unique_name = true ; nv_unique_name_type = _ } ->
       if NameSet.mem name t.names
       then begin
-        Fmt.pr "conflicting name %S in %a\n%!"
-          name Fmt.(seq ~sep:(any";") @@ quote string) (NameSet.to_seq t.names)
-        ;
+        Logs.debug (fun m ->
+            m "conflicting name %S in %a\n%!"
+              name Fmt.(seq ~sep:(any";") @@ quote string)
+              (NameSet.to_seq t.names)) ;
         Error "unique name present twice"
       end else Ok ({t with names = NameSet.add name t.names})
     | { nv_unique_name = false ; nv_unique_name_type = false } ->
@@ -437,7 +438,8 @@ let validate_nv ~nvflag nvl =
 
 
 let read_nvlist_header b off =
-  Fmt.pr "read_nvlist_header off:%d b:%s\n%!" off (Bytes.to_string b |> hex) ;
+  Logs.debug (fun m -> m "read_nvlist_header off:%d b:%s\n%!"
+                 off (Bytes.to_string b |> hex)) ;
   (if off >= Bytes.length b - 24
    then Error (Fmt.str "%s input too short" __FUNCTION__)
    else Ok ()) >>=fun() ->
@@ -446,8 +448,8 @@ let read_nvlist_header b off =
   let priv = Bytes.get_int64_le b   (off+4+4) in
   let flag = Bytes.get_int32_le b   (off+4+4+8) in
   let pad = Bytes.get_int32_le b    (off+4+4+8+4) in
-  Fmt.pr "off:%d nvlist_header_t: %ld %ld priv:%#Lx %ld %ld\n%!"
-    off nvl_version nvflag priv flag pad ;
+  Logs.debug (fun m -> m "off:%d nvlist_header_t: %ld %ld priv:%#Lx %ld %ld\n%!"
+    off nvl_version nvflag priv flag pad) ;
   let _assert_ b1 b2 =
     if b1 = b2 then Ok () else Error (Fmt.str "%s violation" __FUNCTION__) in
   begin if nvl_version <> 0l then
@@ -639,11 +641,11 @@ let fnvlist_pack (nv:nvl) =
 
         pack_untagged child_b nvstate nvalue >>= fun () ->
         let nv_length = get_nv_size ~name:key nvalue in
-        Printf.eprintf "too much lenb %#x lenchildb %#x nvlen:%d(%#x) maybefix:%#x\n%!"
-          (Buffer.length b) (Buffer.length child_b) nv_length nv_length (nv_length -8 + align8_total (String.length key));
+        Logs.debug (fun m -> m "too much lenb %#x lenchildb %#x nvlen:%d(%#x) maybefix:%#x\n%!"
+          (Buffer.length b) (Buffer.length child_b) nv_length nv_length (nv_length -8 + align8_total (String.length key)));
         Buffer.add_int32_le b (nv_length |> Int32.of_int) ;
-        Printf.eprintf "%#x: %s\n%!" (Buffer.length child_b)
-          (hex @@ Buffer.contents child_b);
+        Logs.debug (fun m -> m "%#x: %s\n%!" (Buffer.length child_b)
+          (hex @@ Buffer.contents child_b));
         Buffer.add_buffer b child_b ;
         pairs nvstate next
     in pairs o_nvstate nvl
@@ -669,7 +671,8 @@ let fnvlist_unpack s =
       | None -> Error "no nullbyte in string"
       | Some null_idx ->
         let s = Bytes.sub_string b off (null_idx-off) in
-        Fmt.pr "len:%d off:%d null_idx:%d s:%S\n%!" len off null_idx s;
+        Logs.debug (fun m ->
+            m "len:%d off:%d null_idx:%d s:%S\n%!" len off null_idx s) ;
         Ok (1 + null_idx, s)
     end
   in
@@ -720,7 +723,7 @@ let fnvlist_unpack s =
     let appendix = Bytes.get_int32_le b off in
     let off = off + 4 in
     if appendix = 0l then begin
-      Fmt.pr "off: %d appendix zero\n%!" off ;
+      Logs.debug (fun m -> m "off: %d appendix zero\n%!" off) ;
       Ok (off, acc)
     end else begin
       (if appendix < 0l
@@ -937,11 +940,13 @@ let fnvlist_unpack s =
           Ok (off+8, Double)
         | _ -> .
       end >>= fun (off, el_val) ->
-      Fmt.pr "begin_off: %d old_off %d off %d appendix %ld %u:%S elcount:%ud %ld => %a\n%!"
-        begin_off old_off off appendix el_namesz el_name el_count (typeof el_val)
-        pp_value el_val ;
-      Fmt.pr "appendix: %ld expected: %ld\n%!" appendix
-        (off - begin_off |> Int32.of_int);
+      Logs.debug (fun m ->
+          m "begin_off: %d old_off %d off %d appendix %ld %u:%S elcount:%ud %ld => %a\n%!"
+            begin_off old_off off appendix el_namesz el_name
+            el_count (typeof el_val)
+            pp_value el_val) ;
+      Logs.debug (fun m -> m "appendix: %ld expected: %ld\n%!" appendix
+                     (off - begin_off |> Int32.of_int)) ;
       begin match el_val with
         | Nvlist _
         | NvlistArray (_::_) -> Ok ()
@@ -956,8 +961,9 @@ let fnvlist_unpack s =
        else Error "fnvlist_unpack loop failed to advance") >>= fun () ->
       let sz = get_nv_size el_name el_val  in
       begin
-        Fmt.pr "calculated sz: %d appendix: %ld el_namesz: %u\n%!"
-          sz appendix el_namesz ;
+        Logs.debug (fun m ->
+            m "calculated sz: %d appendix: %ld el_namesz: %u\n%!"
+              sz appendix el_namesz) ;
         if sz <> Int32.to_int appendix then
           Error "decoded length does not match"
         else Ok ()
