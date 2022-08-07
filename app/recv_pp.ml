@@ -12,14 +12,23 @@ let jump () token override_toname override_toguid override_obj override_bytes ov
     close_in fd ; x, sz in
   let left = ref size in
   let fletcher4 = ref Fletcher4.empty in
+  let cksum_good = ref false in
   while !left > 0 do
-    let consumed, cksum_new = DRR.parse_drr ~fletcher4:!fletcher4 (
+    let drr, consumed, cksum_new = DRR.parse_drr ~fletcher4:!fletcher4 (
         String.sub content (String.length content - !left) !left
         |> Bytes.of_string) in
+    begin match drr with
+      | DRR_END (Full {cksum; computed_cksum; toguid = _})
+        when String.equal cksum computed_cksum ->
+        cksum_good := true;
+      | _ -> ()
+    end ;
     left := !left - consumed ;
     fletcher4 := cksum_new
   done ;
-  Ok ()
+  if !cksum_good
+  then Ok ()
+  else Error (`Msg "checksum mismatch")
 
 let setup_log style_renderer level =
   Fmt_tty.setup_std_outputs ?style_renderer ();
@@ -70,9 +79,10 @@ let arg_file =
   let doc = "file containing nvlist" in
   Arg.(required & pos 0 (some file) None & info [] ~doc ~docv:"FILE")
 
-let cmd =
+let cmd_v, cmd_info =
   Term.(term_result (const jump $ setup_log $ token $ toname $ toguid $ arg_obj $ arg_bytes $ arg_offset $ arg_file)),
-  Term.info "recv_pp" ~version:"%%VERSION_NUM%%"
+  Cmd.info "recv_pp" ~version:"%%VERSION_NUM%%"
 
 
-let () = match Term.eval cmd with `Ok () -> exit 0 | _ -> exit 1
+let () =
+  exit @@ Cmd.eval (Cmd.v cmd_info cmd_v)

@@ -49,7 +49,7 @@ let test_recv_basic () =
   let left = ref (String.length basic) in
     let fletcher4 = ref Fletcher4.empty in
   while !left > 0 do
-    let consumed, cksum_new = DRR.parse_drr ~fletcher4:!fletcher4 (
+    let _drr, consumed, cksum_new = DRR.parse_drr ~fletcher4:!fletcher4 (
         String.sub basic (String.length basic - !left) !left
         |> Bytes.of_string) in
     left := !left - consumed ;
@@ -58,10 +58,26 @@ let test_recv_basic () =
   assert (!left = 0);
   ()
 
+let test_dmu_OT_of_int32 () =
+  let open Nvlist_zfs in
+  for idx = 1 to 53 do
+    let ot = DMU_object.of_int32 (Int32.of_int idx) in
+    Alcotest.(check unit) (Printf.sprintf "we have a pp for OT %d" idx)
+      ( () )
+      (DMU_object.pp Format.str_formatter ot) ;
+    assert (Obj.tag (Obj.magic ot) == Obj.int_tag) ;
+    Alcotest.(check int) "check variant tag matches of_int32"
+      (idx)
+      (succ (Obj.magic ot : int)) (* succ because we skip DMU_OT_NONE *)
+  done
+
 let tests = [
   "fletcher4", [
     "basic", `Quick, test_f4_basic ;
     (* TODO crowbar test that truncated_fletcher4 matches varsize implementation *)
+  ];
+  "dmu_object_type", [
+    "of_int32", `Quick, test_dmu_OT_of_int32 ;
   ];
   "unpack resumetok", [
     "case1", `Quick, test_case1 ;

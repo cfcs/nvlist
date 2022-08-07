@@ -76,9 +76,10 @@ let arg_offset =
   let doc = "Override offset= property" in
   Arg.(value & opt (some int64) None & info ["offset"] ~doc)
 
-let cmd =
+let (cmd_v, cmd_info) =
   Term.(term_result (const jump $ setup_log $ token $ toname $ toguid $ arg_obj $ arg_bytes $ arg_offset)),
-  Term.info "zfs_resumetok_decode" ~version:"%%VERSION_NUM%%"
+  Cmd.info "zfs_resumetok_decode" ~version:"%%VERSION_NUM%%"
 
 
-let () = match Term.eval cmd with `Ok () -> exit 0 | _ -> exit 1
+let () =
+  exit @@ Cmd.eval (Cmd.v cmd_info cmd_v)

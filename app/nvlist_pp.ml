@@ -37,8 +37,10 @@ let arg_file =
   Arg.(required & pos 0 (some file) None & info [] ~doc ~docv:"FILE")
 
 let cmd =
-  Term.(term_result (const jump $ setup_log $ arg_file)),
-  Term.info "nvlist_pp" ~version:"%%VERSION_NUM%%"
+  Cmd.v
+    (Cmd.info "nvlist_pp" ~version:"%%VERSION_NUM%%")
+    Term.(term_result (const jump $ setup_log $ arg_file))
 
 
-let () = match Term.eval cmd with `Ok () -> exit 0 | _ -> exit 1
+let () =
+  exit @@ Cmd.eval cmd
